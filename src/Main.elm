@@ -179,14 +179,16 @@ getProducts =
 
 barCodeEncoder : Decode.Decoder ProductDetails
 barCodeEncoder =
-    map2 ProductDetails
+    map3 ProductDetails
         (field "code" string)
         (field "barcodes" (list string))
+        (field "name" string)
 
 
 type alias ProductDetails =
     { code : String
     , barcodes : List String
+    , name : String
     }
 
 
@@ -245,6 +247,30 @@ subscriptions model =
 -- VIEW
 
 
+isValidBarcodes : List String -> Bool
+isValidBarcodes barcodes =
+    List.all isGeneratedBarcode barcodes
+
+
+isGeneratedBarcode : String -> Bool
+isGeneratedBarcode barcode =
+    String.startsWith "2000" barcode
+
+
+renderProduct : ReportRow -> Html Msg
+renderProduct product =
+    case product.details of
+        Just productDetails ->
+            if isValidBarcodes productDetails.barcodes then
+                li [ style "color" "green" ] [ text productDetails.name ]
+
+            else
+                li [ style "color" "red" ] [ text productDetails.name ]
+
+        Nothing ->
+            li [] []
+
+
 view : Model -> Html Msg
 view model =
     if not model.loggedIn then
@@ -277,6 +303,7 @@ view model =
             , button
                 [ onClick LoadReport ]
                 [ text "Load Report" ]
+            , ul [] (List.map renderProduct (Dict.values model.products))
             ]
 
 
