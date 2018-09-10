@@ -4,13 +4,13 @@ port module Main exposing (main)
 
 import Base64
 import Browser
+import Dict exposing (Dict)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import Http exposing (toTask)
-import Json.Decode as Decode exposing (array, field, list, map2, string)
+import Json.Decode as Decode exposing (andThen, array, dict, field, list, map, map2, map3, string, succeed)
 import Json.Encode as E
-import List exposing (map)
 import Task exposing (Task, perform, sequence)
 
 
@@ -39,8 +39,8 @@ type alias Model =
     , password : String
     , token : String
     , loggedIn : Bool
-    , products : List String
-    , productBarcodes : List (List String)
+    , products : Report
+    , err : Maybe Http.Error
     }
 
 
@@ -48,12 +48,12 @@ init : Maybe String -> ( Model, Cmd Msg )
 init authToken =
     case authToken of
         Just token ->
-            ( Model "" "" token True [] []
+            ( Model "" "" token True Dict.empty Nothing
             , Cmd.none
             )
 
         Nothing ->
-            ( Model "" "" "" False [] []
+            ( Model "" "" "" False Dict.empty Nothing
             , Cmd.none
             )
 
@@ -64,8 +64,8 @@ type Msg
     | GetToken
     | TokenCheck (Result Http.Error String)
     | LoadReport
-    | SalesReport (Result Http.Error (List String))
-    | ProductData (Result Http.Error (List (List String)))
+    | SalesReport (Result Http.Error Report)
+    | ProductData (Result Http.Error ProductDetails)
 
 
 
@@ -127,14 +127,14 @@ update msg model =
 
         SalesReport (Ok linksToProducts) ->
             ( { model | products = linksToProducts }
-            , Task.attempt ProductData (sequence (prepareRequests model.token linksToProducts))
+            , Cmd.batch (prepareRequests model.token linksToProducts)
             )
 
         SalesReport (Err err) ->
-            ( model, Cmd.none )
+            ( { model | err = Just err }, Cmd.none )
 
-        ProductData (Ok productBarcodes) ->
-            ( { model | productBarcodes = productBarcodes }
+        ProductData (Ok productDetails) ->
+            ( { model | products = Dict.update productDetails.code (updateProductDetails productDetails) model.products }
             , Cmd.none
             )
 
@@ -142,48 +142,89 @@ update msg model =
             ( model, Cmd.none )
 
 
-prepareRequests : String -> List String -> List (Task Http.Error (List String))
+type alias Report =
+    Dict String ReportRow
+
+
+updateProductDetails : ProductDetails -> Maybe ReportRow -> Maybe ReportRow
+updateProductDetails productDetails reportRow =
+    Maybe.map (\row -> { row | details = Just productDetails }) reportRow
+
+
+prepareRequests : String -> Report -> List (Cmd Msg)
 prepareRequests token links =
-    map toTask (requestForEachLink token links)
+    Dict.values (Dict.map (\key value -> createHttpRequest token value) links)
 
 
-requestForEachLink : String -> List String -> List (Http.Request (List String))
-requestForEachLink token links =
-    map (hasBarcode token) links
+createHttpRequest : String -> ReportRow -> Cmd Msg
+createHttpRequest token reportRow =
+    Http.send ProductData <|
+        Http.request
+            { method = "GET"
+            , headers =
+                [ Http.header "Authorization" token
+                ]
+            , url = getProxiedUrl reportRow.href
+            , body = Http.emptyBody
+            , expect = Http.expectJson barCodeEncoder
+            , timeout = Nothing
+            , withCredentials = False
+            }
 
 
-hasBarcode token ref =
-    Http.request
-        { method = "GET"
-        , headers =
-            [ Http.header "Authorization" token
-            ]
-        , url = getProxiedUrl ref
-        , body = Http.emptyBody
-        , expect = Http.expectJson barCodeEncoder
-        , timeout = Nothing
-        , withCredentials = False
-        }
-
-
+getProducts : String
 getProducts =
     getProxiedUrl "https://online.moysklad.ru/api/remap/1.1/entity/product"
 
 
+barCodeEncoder : Decode.Decoder ProductDetails
 barCodeEncoder =
-    field "barcodes" (list string)
+    map2 ProductDetails
+        (field "code" string)
+        (field "barcodes" (list string))
 
 
+type alias ProductDetails =
+    { code : String
+    , barcodes : List String
+    }
+
+
+reportSalesByVariant : String
 reportSalesByVariant =
     getProxiedUrl "https://online.moysklad.ru/api/remap/1.1/report/sales/byvariant"
 
 
+productCodeEncoder : Decode.Decoder Report
 productCodeEncoder =
-    field "rows" (list referenceDecoder)
+    field "rows" (list assortmentDecoder)
+        |> map (List.map (\row -> ( row.code, row )))
+        |> map Dict.fromList
 
 
-referenceDecoder =
-    field "assortment" (field "meta" (field "href" string))
+
+-- |> map Dict.fromList
+-- map Dict.fromList (dict (field "rows" (list assortmentDecoder)))
+
+
+assortmentDecoder : Decode.Decoder ReportRow
+assortmentDecoder =
+    field "assortment" reportRowDecoder
+
+
+type alias ReportRow =
+    { code : String
+    , href : String
+    , details : Maybe ProductDetails
+    }
+
+
+reportRowDecoder : Decode.Decoder ReportRow
+reportRowDecoder =
+    map3 ReportRow
+        (field "code" string)
+        (field "meta" (field "href" string))
+        (succeed Nothing)
 
 
 getProxiedUrl : String -> String
