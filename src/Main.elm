@@ -9,9 +9,10 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import Http exposing (toTask)
-import Json.Decode as Decode exposing (andThen, array, dict, field, list, map, map2, map3, string, succeed)
+import Json.Decode as Decode exposing (Decoder, andThen, array, dict, field, list, map, map2, map3, string, succeed)
 import Json.Encode as E
 import Task exposing (Task, perform, sequence)
+import Url.Builder exposing (QueryParameter, crossOrigin)
 
 
 port setToken : String -> Cmd msg
@@ -41,6 +42,7 @@ type alias Model =
     , loggedIn : Bool
     , products : Report
     , err : Maybe Http.Error
+    , page : Int
     }
 
 
@@ -48,12 +50,12 @@ init : Maybe String -> ( Model, Cmd Msg )
 init authToken =
     case authToken of
         Just token ->
-            ( Model "" "" token True Dict.empty Nothing
+            ( Model "" "" token True Dict.empty Nothing 1
             , Cmd.none
             )
 
         Nothing ->
-            ( Model "" "" "" False Dict.empty Nothing
+            ( Model "" "" "" False Dict.empty Nothing 1
             , Cmd.none
             )
 
@@ -111,22 +113,11 @@ update msg model =
 
         LoadReport ->
             ( model
-            , Http.send SalesReport <|
-                Http.request
-                    { method = "GET"
-                    , headers =
-                        [ Http.header "Authorization" model.token
-                        ]
-                    , url = reportSalesByVariant
-                    , body = Http.emptyBody
-                    , expect = Http.expectJson productCodeEncoder
-                    , timeout = Nothing
-                    , withCredentials = False
-                    }
+            , loadReport model.token model.page
             )
 
         SalesReport (Ok linksToProducts) ->
-            ( { model | products = linksToProducts }
+            ( { model | products = Dict.union linksToProducts model.products }
             , Cmd.batch (prepareRequests model.token linksToProducts)
             )
 
@@ -134,9 +125,17 @@ update msg model =
             ( { model | err = Just err }, Cmd.none )
 
         ProductData (Ok productDetails) ->
-            ( { model | products = Dict.update productDetails.code (updateProductDetails productDetails) model.products }
-            , Cmd.none
-            )
+            let
+                filteredProducts =
+                    filterOnlyMissingBarcodes (addProductDetails productDetails model.products)
+            in
+            if List.length (Dict.values filteredProducts) < 5 then
+                ( { model | products = filteredProducts, page = model.page + 1 }
+                , loadReport model.token model.page
+                )
+
+            else
+                ( { model | products = filteredProducts }, Cmd.none )
 
         ProductData (Err err) ->
             ( model, Cmd.none )
@@ -144,6 +143,55 @@ update msg model =
 
 type alias Report =
     Dict String ReportRow
+
+
+loadMore model =
+    let
+        filteredProducts =
+            filterOnlyMissingBarcodes model.products
+    in
+    if List.length (Dict.values filteredProducts) < 5 then
+        ( { model | page = model.page + 1 }
+        , loadReport model.token model.page
+        )
+
+    else
+        ( model, Cmd.none )
+
+
+loadReport token page =
+    Http.send SalesReport <|
+        Http.request
+            { method = "GET"
+            , headers =
+                [ Http.header "Authorization" token
+                ]
+            , url = reportSalesByVariant page
+            , body = Http.emptyBody
+            , expect = Http.expectJson productCodeEncoder
+            , timeout = Nothing
+            , withCredentials = False
+            }
+
+
+filterOnlyMissingBarcodes : Report -> Report
+filterOnlyMissingBarcodes report =
+    Dict.filter rowHasMissingBarcodes report
+
+
+rowHasMissingBarcodes : String -> ReportRow -> Bool
+rowHasMissingBarcodes code row =
+    case row.details of
+        Just productDetails ->
+            missingBarcodes productDetails.barcodes
+
+        Nothing ->
+            False
+
+
+addProductDetails : ProductDetails -> Report -> Report
+addProductDetails productDetails products =
+    Dict.update productDetails.code (updateProductDetails productDetails) products
 
 
 updateProductDetails : ProductDetails -> Maybe ReportRow -> Maybe ReportRow
@@ -164,7 +212,7 @@ createHttpRequest token reportRow =
             , headers =
                 [ Http.header "Authorization" token
                 ]
-            , url = getProxiedUrl reportRow.href
+            , url = getProxyUrl [ reportRow.href ] []
             , body = Http.emptyBody
             , expect = Http.expectJson barCodeEncoder
             , timeout = Nothing
@@ -174,7 +222,7 @@ createHttpRequest token reportRow =
 
 getProducts : String
 getProducts =
-    getProxiedUrl "https://online.moysklad.ru/api/remap/1.1/entity/product"
+    getApiUrl [ "entity", "product" ] Nothing
 
 
 barCodeEncoder : Decode.Decoder ProductDetails
@@ -192,9 +240,13 @@ type alias ProductDetails =
     }
 
 
-reportSalesByVariant : String
-reportSalesByVariant =
-    getProxiedUrl "https://online.moysklad.ru/api/remap/1.1/report/sales/byvariant"
+reportSalesByVariant : Int -> String
+reportSalesByVariant page =
+    getApiUrl [ "sales", "byvariant" ] (Just [ Url.Builder.string "offset" (String.fromInt (page * 25)) ])
+
+
+
+-- "https://online.moysklad.ru/api/remap/1.1/report/sales/byvariant"
 
 
 productCodeEncoder : Decode.Decoder Report
@@ -229,9 +281,14 @@ reportRowDecoder =
         (succeed Nothing)
 
 
-getProxiedUrl : String -> String
-getProxiedUrl url =
-    "http://localhost:8080/" ++ url
+getApiUrl : List String -> Maybe (List QueryParameter) -> String
+getApiUrl parameters queryParemeters =
+    getProxyUrl (List.append [ "https://online.moysklad.ru", "api", "remap", "1.1" ] parameters) (Maybe.withDefault [] queryParemeters)
+
+
+getProxyUrl : List String -> List QueryParameter -> String
+getProxyUrl =
+    crossOrigin "http://localhost:8080"
 
 
 
@@ -247,8 +304,8 @@ subscriptions model =
 -- VIEW
 
 
-isValidBarcodes : List String -> Bool
-isValidBarcodes barcodes =
+missingBarcodes : List String -> Bool
+missingBarcodes barcodes =
     List.all isGeneratedBarcode barcodes
 
 
@@ -261,7 +318,7 @@ renderProduct : ReportRow -> Html Msg
 renderProduct product =
     case product.details of
         Just productDetails ->
-            if isValidBarcodes productDetails.barcodes then
+            if missingBarcodes productDetails.barcodes then
                 li [ style "color" "green" ] [ text productDetails.name ]
 
             else
