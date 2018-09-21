@@ -66,8 +66,7 @@ type Msg
     | GetToken
     | TokenCheck (Result Http.Error String)
     | LoadReport
-    | SalesReport (Result Http.Error Report)
-    | ProductData (Result Http.Error ProductDetails)
+    | ProductData (Result Http.Error Report)
 
 
 
@@ -113,46 +112,49 @@ update msg model =
 
         LoadReport ->
             ( model
-            , loadReport model.token model.page
+            , Http.toTask (loadReport model.token model.page)
+                |> Task.andThen
+                    (\report ->
+                        Task.map (addProductDetailsResultsToReport report) (Task.sequence (prepareRequests model.token report))
+                    )
+                |> Task.attempt ProductData
             )
 
-        SalesReport (Ok linksToProducts) ->
-            ( { model | products = Dict.union linksToProducts model.products }
-            , Cmd.batch (prepareRequests model.token linksToProducts)
-            )
-
-        SalesReport (Err err) ->
-            ( { model | err = Just err }, Cmd.none )
-
-        ProductData (Ok productDetails) ->
-            let
-                filteredProducts =
-                    filterOnlyMissingBarcodes (addProductDetails productDetails model.products)
-            in
-            if List.length (Dict.values filteredProducts) < 5 then
-                ( { model | products = filteredProducts, page = model.page + 1 }
-                , loadReport model.token model.page
-                )
-
-            else
-                ( { model | products = filteredProducts }, Cmd.none )
+        ProductData (Ok report) ->
+            loadMore model report
 
         ProductData (Err err) ->
             ( model, Cmd.none )
+
+
+addProductDetailsResultsToReport : Report -> List ProductDetails -> Report
+addProductDetailsResultsToReport report productDetails =
+    List.foldl addProductDetails report productDetails
+
+
+addProductDetailsToReport : Report -> Task Http.Error ProductDetails -> Task Http.Error Report
+addProductDetailsToReport report detailsTask =
+    Task.map (\details -> addProductDetails details report) detailsTask
 
 
 type alias Report =
     Dict String ReportRow
 
 
-loadMore model =
+loadMore : Model -> Report -> ( Model, Cmd Msg )
+loadMore model report =
     let
-        filteredProducts =
+        numberOfValidProducts =
             filterOnlyMissingBarcodes model.products
+                |> Dict.values
+                |> List.length
     in
-    if List.length (Dict.values filteredProducts) < 5 then
-        ( { model | page = model.page + 1 }
-        , loadReport model.token model.page
+    if numberOfValidProducts < 5 then
+        ( { model
+            | page = model.page + 1
+            , products = Dict.union model.products report
+          }
+        , Http.send ProductData (loadReport model.token model.page)
         )
 
     else
@@ -160,18 +162,17 @@ loadMore model =
 
 
 loadReport token page =
-    Http.send SalesReport <|
-        Http.request
-            { method = "GET"
-            , headers =
-                [ Http.header "Authorization" token
-                ]
-            , url = reportSalesByVariant page
-            , body = Http.emptyBody
-            , expect = Http.expectJson productCodeEncoder
-            , timeout = Nothing
-            , withCredentials = False
-            }
+    Http.request
+        { method = "GET"
+        , headers =
+            [ Http.header "Authorization" token
+            ]
+        , url = reportSalesByVariant page
+        , body = Http.emptyBody
+        , expect = Http.expectJson productCodeEncoder
+        , timeout = Nothing
+        , withCredentials = False
+        }
 
 
 filterOnlyMissingBarcodes : Report -> Report
@@ -199,25 +200,24 @@ updateProductDetails productDetails reportRow =
     Maybe.map (\row -> { row | details = Just productDetails }) reportRow
 
 
-prepareRequests : String -> Report -> List (Cmd Msg)
+prepareRequests : String -> Report -> List (Task Http.Error ProductDetails)
 prepareRequests token links =
-    Dict.values (Dict.map (\key value -> createHttpRequest token value) links)
+    Dict.values (Dict.map (\key value -> Http.toTask (createHttpRequest token value)) links)
 
 
-createHttpRequest : String -> ReportRow -> Cmd Msg
+createHttpRequest : String -> ReportRow -> Http.Request ProductDetails
 createHttpRequest token reportRow =
-    Http.send ProductData <|
-        Http.request
-            { method = "GET"
-            , headers =
-                [ Http.header "Authorization" token
-                ]
-            , url = getProxyUrl [ reportRow.href ] []
-            , body = Http.emptyBody
-            , expect = Http.expectJson barCodeEncoder
-            , timeout = Nothing
-            , withCredentials = False
-            }
+    Http.request
+        { method = "GET"
+        , headers =
+            [ Http.header "Authorization" token
+            ]
+        , url = getProxyUrl [ reportRow.href ] []
+        , body = Http.emptyBody
+        , expect = Http.expectJson barCodeEncoder
+        , timeout = Nothing
+        , withCredentials = False
+        }
 
 
 getProducts : String
