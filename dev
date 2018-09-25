@@ -1,2 +1,2 @@
 #!/bin/bash
-elm-live src/Main.elm --debug --output=out/Main.js
+elm-live src/Main.elm -- --debug --output=out/Main.js
