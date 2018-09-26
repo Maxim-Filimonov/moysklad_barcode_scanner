@@ -11,6 +11,7 @@ import Html.Events exposing (..)
 import Http exposing (toTask)
 import Json.Decode as Decode exposing (Decoder, andThen, array, dict, field, list, map, map2, map3, string, succeed)
 import Json.Encode as E
+import Process exposing (spawn)
 import Task exposing (Task, perform, sequence)
 import Url.Builder exposing (QueryParameter, crossOrigin)
 
@@ -66,7 +67,7 @@ type Msg
     | GetToken
     | TokenCheck (Result Http.Error String)
     | LoadReport
-    | ProductData (Result Http.Error Report)
+    | ProductDataLoaded (Result Http.Error Report)
 
 
 
@@ -117,19 +118,21 @@ update msg model =
                     (\report ->
                         Task.map (addProductDetailsResultsToReport report) (Task.sequence (prepareRequests model.token report))
                     )
-                |> Task.attempt ProductData
+                |> Task.map filterOnlyMissingBarcodes
+                |> Task.attempt ProductDataLoaded
             )
 
-        ProductData (Ok report) ->
+        ProductDataLoaded (Ok report) ->
             loadMore model report
 
-        ProductData (Err err) ->
+        ProductDataLoaded (Err err) ->
             ( model, Cmd.none )
 
 
 addProductDetailsResultsToReport : Report -> List ProductDetails -> Report
 addProductDetailsResultsToReport report productDetails =
     List.foldl addProductDetails report productDetails
+
 
 
 addProductDetailsToReport : Report -> Task Http.Error ProductDetails -> Task Http.Error Report
@@ -145,7 +148,7 @@ loadMore : Model -> Report -> ( Model, Cmd Msg )
 loadMore model report =
     let
         numberOfValidProducts =
-            filterOnlyMissingBarcodes model.products
+            model.products
                 |> Dict.values
                 |> List.length
     in
@@ -154,7 +157,7 @@ loadMore model report =
             | page = model.page + 1
             , products = Dict.union model.products report
           }
-        , Http.send ProductData (loadReport model.token model.page)
+        , Http.send ProductDataLoaded (loadReport model.token model.page)
         )
 
     else
@@ -242,7 +245,7 @@ type alias ProductDetails =
 
 reportSalesByVariant : Int -> String
 reportSalesByVariant page =
-    getApiUrl [ "sales", "byvariant" ] (Just [ Url.Builder.string "offset" (String.fromInt (page * 25)) ])
+    getApiUrl [ "report", "sales", "byvariant" ] (Just [ Url.Builder.string "offset" (String.fromInt (page * 25)) ])
 
 
 
