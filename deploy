@@ -1,0 +1,3 @@
+#/bin/bash
+elm make src/Main.elm --optimize --output=out/Main.js
+heroku static:deploy
