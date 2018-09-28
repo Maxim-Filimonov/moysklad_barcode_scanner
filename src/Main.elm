@@ -311,7 +311,12 @@ type alias ProductDetails =
 
 reportSalesByVariant : Int -> String
 reportSalesByVariant page =
-    getApiUrl [ "report", "sales", "byvariant" ] (Just [ Url.Builder.string "offset" (String.fromInt (page * 25)) ])
+    getApiUrl
+        [ "report"
+        , "sales"
+        , "byvariant"
+        ]
+        (Just [ Url.Builder.int "offset" (page * 25), Url.Builder.int "limit" 50 ])
 
 
 sendBarcodeUpdate : String -> ProductDetails -> Http.Request ProductDetails
