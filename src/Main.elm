@@ -452,29 +452,31 @@ renderProduct product =
 view : Model -> Html Msg
 view model =
     if not model.loggedIn then
-        Html.form [ class "loginForm", onSubmit GetToken ]
-            [ input
-                [ type_ "text"
-                , placeholder "Логин"
-                , value model.login
-                , onInput LoginChange
-                , class "mdl-textfield__input"
+        div [ class "loginWrapper" ]
+            [ Html.form [ class "loginForm", onSubmit GetToken ]
+                [ input
+                    [ type_ "text"
+                    , placeholder "Логин"
+                    , value model.login
+                    , onInput LoginChange
+                    , class "mdl-textfield__input"
+                    ]
+                    []
+                , input
+                    [ type_ "password"
+                    , placeholder "Пароль"
+                    , value model.password
+                    , onInput PasswordChange
+                    , class "mdl-textfield__input"
+                    ]
+                    []
+                , input
+                    [ type_ "submit"
+                    , value "Войти"
+                    , class "mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--accent mdl-js-ripple-effect"
+                    ]
+                    []
                 ]
-                []
-            , input
-                [ type_ "password"
-                , placeholder "Пароль"
-                , value model.password
-                , onInput PasswordChange
-                , class "mdl-textfield__input"
-                ]
-                []
-            , input
-                [ type_ "submit"
-                , value "Войти"
-                , class "mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--accent mdl-js-ripple-effect"
-                ]
-                []
             ]
 
     else

@@ -11,6 +11,17 @@
   margin: 6px;
   padding: 5px;
 }
+
 .loginForm {
   margin: 10px;
+  width: 50vw;
+}
+.loginWrapper {
+  display: flex;
+  justify-content: center;
+  height: 100vh;
+  align-items: center;
+}
+.loginForm input[type="submit"] {
+  margin-top: 10px;
 }
