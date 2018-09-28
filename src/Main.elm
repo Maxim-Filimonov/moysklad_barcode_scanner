@@ -69,7 +69,6 @@ type Msg
     | SaveBarCode String
     | TokenCheck (Result Http.Error String)
     | LoadReport
-    | ProductDataLoaded (Result Http.Error Report)
     | ProductDetailsLoaded (Result Http.Error ProductDetails)
     | ReportLoaded (Result Http.Error Report)
     | UpdateProductBarcode String String
@@ -121,12 +120,6 @@ update msg model =
             ( model
             , Http.send ReportLoaded (loadReport model.token model.page)
             )
-
-        ProductDataLoaded (Ok report) ->
-            loadMore model report
-
-        ProductDataLoaded (Err err) ->
-            ( model, Cmd.none )
 
         ProductDetailsLoaded (Ok details) ->
             if model.detailsRequests == 1 then
@@ -207,26 +200,6 @@ loadDetailsForReport : Model -> Report -> List (Cmd Msg)
 loadDetailsForReport model report =
     prepareRequests model.token report
         |> List.map (Task.attempt ProductDetailsLoaded)
-
-
-loadMore : Model -> Report -> ( Model, Cmd Msg )
-loadMore model report =
-    let
-        numberOfValidProducts =
-            model.products
-                |> Dict.values
-                |> List.length
-    in
-    if numberOfValidProducts < 5 then
-        ( { model
-            | page = model.page + 1
-            , products = Dict.union model.products report
-          }
-        , Http.send ProductDataLoaded (loadReport model.token model.page)
-        )
-
-    else
-        ( model, Cmd.none )
 
 
 loadReport : String -> Int -> Http.Request Report
@@ -469,10 +442,10 @@ view model =
     else
         div []
             [ h1 []
-                [ text "You are logged in" ]
+                [ text "Вы вошли в систему" ]
             , button
                 [ onClick LoadReport ]
-                [ text "Load Report" ]
+                [ text "Загрузить данные" ]
             , renderListOrLoading model.detailsRequests model.products
             ]
 
@@ -481,7 +454,7 @@ renderListOrLoading : Int -> Report -> Html Msg
 renderListOrLoading detailsRequests report =
     if detailsRequests > 1 then
         div [ class "loading" ]
-            [ span [] [ text "Loading..." ] ]
+            [ span [] [ text "Загружается..." ] ]
 
     else
         ul [] (List.map renderProduct (Dict.values report))
