@@ -9,7 +9,7 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import Http exposing (toTask)
-import Json.Decode as Decode exposing (Decoder, andThen, array, dict, field, list, map, map2, map3, map4, string, succeed)
+import Json.Decode as Decode exposing (Decoder, andThen, array, dict, field, list, map, map2, map3, map4, map5, string, succeed)
 import Json.Encode as E
 import Process exposing (spawn)
 import Task exposing (Task, perform, sequence)
@@ -125,7 +125,7 @@ update msg model =
             if model.detailsRequests == 1 then
                 ( { model
                     | detailsRequests = 0
-                    , products = filterOnlyMissingBarcodes (addProductDetails details model.products)
+                    , products = addProductDetails details model.products
                   }
                 , Cmd.none
                 )
@@ -161,8 +161,11 @@ update msg model =
             in
             ( model, updateBarcode model.token productDetails )
 
-        BarcodeUpdated _ ->
-            ( model, Cmd.none )
+        BarcodeUpdated (Ok details) ->
+            ( { model | products = Dict.update details.code updateSaved model.products }, Cmd.none )
+
+        BarcodeUpdated (Err err) ->
+            ( { model | err = Just err }, Cmd.none )
 
         UpdateProductBarcode productCode newBarcode ->
             ( { model | products = Dict.update productCode (updateBarcodes newBarcode) model.products }, Cmd.none )
@@ -226,7 +229,7 @@ rowHasMissingBarcodes : String -> ReportRow -> Bool
 rowHasMissingBarcodes code row =
     case row.details of
         Just productDetails ->
-            missingBarcodes productDetails.barcodes
+            missingBarcodes productDetails.barcodes || not row.saved
 
         Nothing ->
             False
@@ -237,9 +240,21 @@ addProductDetails productDetails products =
     Dict.update productDetails.code (updateProductDetails productDetails) products
 
 
+updateSaved : Maybe ReportRow -> Maybe ReportRow
+updateSaved reportRow =
+    Maybe.map (\row -> { row | saved = True }) reportRow
+
+
 updateBarcodes : String -> Maybe ReportRow -> Maybe ReportRow
 updateBarcodes barcode reportRow =
-    Maybe.map (\row -> { row | details = updateBarcodeWithinProductDetails barcode row.details }) reportRow
+    Maybe.map
+        (\row ->
+            { row
+                | saved = False
+                , details = updateBarcodeWithinProductDetails barcode row.details
+            }
+        )
+        reportRow
 
 
 updateBarcodeWithinProductDetails : String -> Maybe ProductDetails -> Maybe ProductDetails
@@ -349,16 +364,18 @@ type alias ReportRow =
     , href : String
     , details : Maybe ProductDetails
     , id : Maybe String
+    , saved : Bool
     }
 
 
 reportRowDecoder : Decode.Decoder ReportRow
 reportRowDecoder =
-    map4 ReportRow
+    map5 ReportRow
         (field "code" string)
         (field "meta" (field "href" string))
         (succeed Nothing)
         (succeed Nothing)
+        (succeed True)
 
 
 getApiUrl : List String -> Maybe (List QueryParameter) -> String
@@ -368,7 +385,7 @@ getApiUrl parameters queryParemeters =
 
 getProxyUrl : List String -> List QueryParameter -> String
 getProxyUrl =
-    crossOrigin "http://localhost:8080"
+    crossOrigin "https://secure-fjord-80419.herokuapp.com"
 
 
 
@@ -402,11 +419,29 @@ renderProduct product =
                 barcode =
                     Maybe.withDefault "" (List.head productDetails.barcodes)
             in
-            li [ style "list-style" "none" ]
-                [ span [] [ text productDetails.name ]
+            li [ class "item mdl-card mdl-shadow--2dp" ]
+                [ span [ class "mdl-card__title-text" ] [ text productDetails.name ]
                 , Html.form [ onSubmit (SaveBarCode productDetails.code) ]
-                    [ input [ onInput (UpdateProductBarcode productDetails.code), type_ "text", placeholder "Barcode", value barcode ] []
-                    , input [ type_ "submit" ] []
+                    [ div
+                        [ class "mdl-textfield" ]
+                        [ input
+                            [ onInput (UpdateProductBarcode productDetails.code)
+                            , type_ "text"
+                            , value barcode
+                            , class "mdl-textfield__input"
+                            , id ("barcode" ++ productDetails.code)
+                            ]
+                            []
+                        , label [ class "", for ("barcode" ++ productDetails.code) ] [ text "Штрихкод" ]
+                        ]
+                    , div [ class "mdl-card__actions mdl-card--border" ]
+                        [ input
+                            [ class "mdl-button mdl-button--colored mdl-js-button mdl-js-ripple-effect"
+                            , type_ "submit"
+                            , value "Сохранить"
+                            ]
+                            []
+                        ]
                     ]
                 ]
 
@@ -417,36 +452,46 @@ renderProduct product =
 view : Model -> Html Msg
 view model =
     if not model.loggedIn then
-        Html.form [ onSubmit GetToken ]
+        Html.form [ class "loginForm", onSubmit GetToken ]
             [ input
                 [ type_ "text"
-                , placeholder "Login"
+                , placeholder "Логин"
                 , value model.login
                 , onInput LoginChange
+                , class "mdl-textfield__input"
                 ]
                 []
             , input
                 [ type_ "password"
-                , placeholder "Password"
+                , placeholder "Пароль"
                 , value model.password
                 , onInput PasswordChange
+                , class "mdl-textfield__input"
                 ]
                 []
             , input
                 [ type_ "submit"
-                , value "Login"
+                , value "Войти"
+                , class "mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--accent mdl-js-ripple-effect"
                 ]
                 []
             ]
 
     else
         div []
-            [ h1 []
-                [ text "Вы вошли в систему" ]
-            , button
-                [ onClick LoadReport ]
-                [ text "Загрузить данные" ]
-            , renderListOrLoading model.detailsRequests model.products
+            [ header
+                []
+                [ div []
+                    [ h3 []
+                        [ text "Вы вошли в систему" ]
+                    ]
+                , button
+                    [ class "mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--accent mdl-js-ripple-effect"
+                    , onClick LoadReport
+                    ]
+                    [ text "Загрузить данные" ]
+                ]
+            , Html.main_ [] [ renderListOrLoading model.detailsRequests (filterOnlyMissingBarcodes model.products) ]
             ]
 
 
@@ -457,7 +502,7 @@ renderListOrLoading detailsRequests report =
             [ span [] [ text "Загружается..." ] ]
 
     else
-        ul [] (List.map renderProduct (Dict.values report))
+        ul [ class "items" ] (List.map renderProduct (Dict.values report))
 
 
 buildAuthorizationToken : String -> String -> String
