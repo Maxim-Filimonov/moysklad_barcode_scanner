@@ -26,3 +26,4 @@ After setting up an app just run deploy script
 ## Current limitations
 - Product data is based on your account sales report - for large inventories it helps to focus on products which are getting sold instead of the whole inventory.
 - One page if fetched(WIP) - only single report page(50 items) is used for now for initial testing. Working on adding recursive fetching.
+- Hardcoded server for no-cors(see `getProxyUrl` function). To work around CORS limitations there is a simple nodejs app which will proxy moysklad api. (Repo)[https://github.com/Maxim-Filimonov/cors_anywhere]. Feel free to fork the report and change the url
