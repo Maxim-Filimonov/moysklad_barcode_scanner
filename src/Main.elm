@@ -126,23 +126,25 @@ update msg model =
             let
                 enoughProducts =
                     Dict.size (filterOnlyMissingBarcodes model.products) > 10
+
+                newPage =
+                    if enoughProducts then
+                        model.page
+
+                    else
+                        model.page + 1
             in
             if model.detailsRequests == 1 then
                 ( { model
                     | detailsRequests = 0
                     , products = addProductDetails details model.products
-                    , page =
-                        if enoughProducts then
-                            model.page
-
-                        else
-                            model.page + 1
+                    , page = newPage
                   }
                 , if enoughProducts then
                     Cmd.none
 
                   else
-                    Http.send ReportLoaded (loadReport model.token model.page)
+                    Http.send ReportLoaded (loadReport model.token newPage)
                 )
 
             else
