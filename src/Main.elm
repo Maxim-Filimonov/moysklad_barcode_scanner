@@ -146,6 +146,7 @@ update msg model =
             ( { model
                 | products = Dict.union model.products report
                 , detailsRequests = Dict.size report
+                , loadingReport = False
               }
             , loadDetailsForReport model report
                 |> Cmd.batch
