@@ -45,6 +45,7 @@ type alias Model =
     , err : Maybe Http.Error
     , page : Int
     , detailsRequests : Int
+    , loadingReport : Bool
     }
 
 
@@ -52,12 +53,12 @@ init : Maybe String -> ( Model, Cmd Msg )
 init authToken =
     case authToken of
         Just token ->
-            ( Model "" "" token True Dict.empty Nothing 1 0
+            ( Model "" "" token True Dict.empty Nothing 1 0 False
             , Cmd.none
             )
 
         Nothing ->
-            ( Model "" "" "" False Dict.empty Nothing 1 0
+            ( Model "" "" "" False Dict.empty Nothing 1 0 False
             , Cmd.none
             )
 
@@ -117,7 +118,7 @@ update msg model =
             ( model, Cmd.none )
 
         LoadReport ->
-            ( model
+            ( { model | loadingReport = True }
             , Http.send ReportLoaded (loadReport model.token model.page)
             )
 
@@ -498,13 +499,13 @@ view model =
                     ]
                     [ text "Загрузить данные" ]
                 ]
-            , Html.main_ [] [ renderListOrLoading model.detailsRequests (filterOnlyMissingBarcodes model.products) ]
+            , Html.main_ [] [ renderListOrLoading model.detailsRequests model.loadingReport (filterOnlyMissingBarcodes model.products) ]
             ]
 
 
-renderListOrLoading : Int -> Report -> Html Msg
-renderListOrLoading detailsRequests report =
-    if detailsRequests > 1 then
+renderListOrLoading : Int -> Bool -> Report -> Html Msg
+renderListOrLoading detailsRequests loadingReport report =
+    if (detailsRequests > 1) || loadingReport then
         div [ class "loading" ]
             [ span [] [ text "Загружается..." ] ]
 
