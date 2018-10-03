@@ -6,3 +6,5 @@ repl-temp-*
 #output dir
 out
 node_modules
+dist
+.cache

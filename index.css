@@ -11,6 +11,9 @@
   margin: 6px;
   padding: 5px;
 }
+.items .item--saved {
+  background-color: lightgreen;
+}
 
 .loginForm {
   margin: 10px;
