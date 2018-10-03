@@ -128,7 +128,10 @@ update msg model =
                     | detailsRequests = 0
                     , products = addProductDetails details model.products
                   }
-                , Cmd.none
+                , if Dict.size (filterOnlyMissingBarcodes model.products) > 10 then
+                    Cmd.none
+                   else
+                    Http.send ReportLoaded (loadReport model.token (model.page + 1))
                 )
 
             else
