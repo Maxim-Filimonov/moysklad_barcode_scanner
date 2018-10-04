@@ -300,7 +300,12 @@ filterOnlyMissingBarcodes report =
 
 
 filterChangedOrMissingBarcodes report =
-    Dict.filter (\code row -> rowHasMissingBarcodes code row || rowIsChanged code row) report
+    Dict.filter (\code row -> rowHasMissingBarcodes code row || rowIsChanged code row || rowInStock code row) report
+
+
+rowInStock : String -> ReportRow -> Bool
+rowInStock code row =
+    Maybe.withDefault True (Maybe.map (\quantity -> quantity > 0) row.quantity)
 
 
 rowIsChanged : String -> ReportRow -> Bool
