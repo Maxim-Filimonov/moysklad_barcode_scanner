@@ -9,7 +9,7 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import Http exposing (toTask)
-import Json.Decode as Decode exposing (Decoder, andThen, array, dict, field, list, map, map2, map3, map4, map5, string, succeed)
+import Json.Decode as Decode exposing (Decoder, andThen, array, dict, field, list, map, map2, map3, map4, map5, map6, string, succeed)
 import Json.Encode as E
 import Process exposing (spawn)
 import Task exposing (Task, perform, sequence)
@@ -243,11 +243,25 @@ filterOnlyMissingBarcodes report =
     Dict.filter rowHasMissingBarcodes report
 
 
+filterChangedOrMissingBarcodes report =
+    Dict.filter (\code row -> rowHasMissingBarcodes code row || rowIsChanged code row) report
+
+
+rowIsChanged : String -> ReportRow -> Bool
+rowIsChanged code row =
+    case row.details of
+        Just productDetails ->
+            row.changed
+
+        Nothing ->
+            False
+
+
 rowHasMissingBarcodes : String -> ReportRow -> Bool
 rowHasMissingBarcodes code row =
     case row.details of
         Just productDetails ->
-            missingBarcodes productDetails.barcodes || not row.saved
+            missingBarcodes productDetails.barcodes
 
         Nothing ->
             False
@@ -269,6 +283,7 @@ updateBarcodes barcode reportRow =
         (\row ->
             { row
                 | saved = False
+                , changed = True
                 , details = updateBarcodeWithinProductDetails barcode row.details
             }
         )
@@ -388,17 +403,19 @@ type alias ReportRow =
     , details : Maybe ProductDetails
     , id : Maybe String
     , saved : Bool
+    , changed : Bool
     }
 
 
 reportRowDecoder : Decode.Decoder ReportRow
 reportRowDecoder =
-    map5 ReportRow
+    map6 ReportRow
         (field "code" string)
         (field "meta" (field "href" string))
         (succeed Nothing)
         (succeed Nothing)
         (succeed True)
+        (succeed False)
 
 
 getApiUrl : List String -> Maybe (List QueryParameter) -> String
@@ -441,8 +458,18 @@ renderProduct product =
             let
                 barcode =
                     Maybe.withDefault "" (List.head productDetails.barcodes)
+
+                color =
+                    if product.changed && product.saved then
+                        "lightgreen"
+
+                    else if product.changed then
+                        "lightyellow"
+
+                    else
+                        "white"
             in
-            li [ class "item mdl-card mdl-shadow--2dp" ]
+            li [ class "item mdl-card mdl-shadow--2dp", style "background" color ]
                 [ span [ class "mdl-card__title-text" ] [ text productDetails.name ]
                 , Html.form [ onSubmit (SaveBarCode productDetails.code) ]
                     [ div
@@ -516,7 +543,7 @@ view model =
                     ]
                     [ text "Загрузить данные" ]
                 ]
-            , Html.main_ [] [ renderListOrLoading model.detailsRequests model.loadingReport (filterOnlyMissingBarcodes model.products) ]
+            , Html.main_ [] [ renderListOrLoading model.detailsRequests model.loadingReport (filterChangedOrMissingBarcodes model.products) ]
             ]
 
 
