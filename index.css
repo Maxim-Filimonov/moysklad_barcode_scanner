@@ -3,9 +3,17 @@
   flex-direction: row;
   flex-wrap: wrap;
 }
-.item span {
-  height: 80px;
+.items .item__name {
   align-self: center;
+  margin-top: 3px;
+}
+.item__quantity {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  padding: 3px;
+  border-left: 1px solid black;
+  border-bottom: 1px solid black;
 }
 .item {
   margin: 6px;
