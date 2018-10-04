@@ -139,6 +139,7 @@ update msg model =
                     | detailsRequests = 0
                     , products = addProductDetails details model.products
                     , page = newPage
+                    , loadingReport = not enoughProducts
                   }
                 , if enoughProducts then
                     Cmd.none
@@ -162,7 +163,6 @@ update msg model =
             ( { model
                 | products = Dict.union report model.products
                 , detailsRequests = Dict.size report
-                , loadingReport = False
               }
             , loadDetailsForReport model report
                 |> Cmd.batch
