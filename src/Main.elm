@@ -11,6 +11,7 @@ import Html.Events exposing (..)
 import Http exposing (toTask)
 import Json.Decode as Decode exposing (Decoder, andThen, array, dict, field, list, map, map2, map3, map4, map5, map6, string, succeed)
 import Json.Encode as E
+import Maybe.Extra exposing (values)
 import Process exposing (spawn)
 import Task exposing (Task, perform, sequence)
 import Url.Builder exposing (QueryParameter, crossOrigin)
@@ -74,6 +75,13 @@ type Msg
     | ReportLoaded (Result Http.Error Report)
     | UpdateProductBarcode String String
     | BarcodeUpdated (Result Http.Error ProductDetails)
+    | LoadedRemains (Result Http.Error (Dict String RemainsInfo))
+
+
+type alias RemainsInfo =
+    { quantity : Int
+    , code : String
+    }
 
 
 
@@ -142,7 +150,7 @@ update msg model =
                     , loadingReport = not enoughProducts
                   }
                 , if enoughProducts then
-                    Cmd.none
+                    Http.send LoadedRemains (loadRemainsForReport model.token model.products)
 
                   else
                     Http.send ReportLoaded (loadReport model.token newPage)
@@ -188,6 +196,27 @@ update msg model =
         UpdateProductBarcode productCode newBarcode ->
             ( { model | products = Dict.update productCode (updateBarcodes newBarcode) model.products }, Cmd.none )
 
+        LoadedRemains (Ok remainsInfos) ->
+            ( { model | products = updateRemains remainsInfos model.products }, Cmd.none )
+
+        LoadedRemains (Err err) ->
+            ( { model | err = Just err }, Cmd.none )
+
+
+updateRemains : Dict String RemainsInfo -> Report -> Report
+updateRemains remainsInfos report =
+    Dict.map (\code value -> updateProductWithQuantity value (Dict.get code remainsInfos)) report
+
+
+updateProductWithQuantity : ReportRow -> Maybe RemainsInfo -> ReportRow
+updateProductWithQuantity row remainsInfo =
+    case remainsInfo of
+        Just info ->
+            { row | quantity = Just info.quantity }
+
+        Nothing ->
+            row
+
 
 updateBarcode : String -> Maybe ProductDetails -> Cmd Msg
 updateBarcode token productDetails =
@@ -204,8 +233,35 @@ addProductDetailsResultsToReport report productDetails =
     List.foldl addProductDetails report productDetails
 
 
+type alias RemainsInfos =
+    Dict String RemainsInfo
 
--- addProductDetailsToTasks: Report -> List Task Http.Error ProductDetails -> List Task Http.Error
+
+loadRemainsForReport : String -> Report -> Http.Request RemainsInfos
+loadRemainsForReport token report =
+    let
+        visibleProducts =
+            filterChangedOrMissingBarcodes report
+
+        productIds =
+            values (Dict.values (Dict.map (\key row -> Maybe.map .id row.details) visibleProducts))
+    in
+    prepareRemainsRequest token productIds
+
+
+prepareRemainsRequest : String -> List String -> Http.Request RemainsInfos
+prepareRemainsRequest token productIds =
+    Http.request
+        { method = "GET"
+        , headers =
+            [ Http.header "Authorization" token
+            ]
+        , url = reportRemains productIds
+        , body = Http.emptyBody
+        , expect = Http.expectJson remainsInfoListDecoder
+        , timeout = Nothing
+        , withCredentials = False
+        }
 
 
 addProductDetailsToReport : Report -> Task Http.Error ProductDetails -> Task Http.Error Report
@@ -215,12 +271,6 @@ addProductDetailsToReport report detailsTask =
 
 type alias Report =
     Dict String ReportRow
-
-
-
--- loadRemainsForReport : Model -> Report -> List (Cmd Msg)
--- loadRemainsForReport model report =
---     Dict.map (\key row -> row.)
 
 
 loadDetailsForReport : Model -> Report -> List (Cmd Msg)
@@ -308,7 +358,13 @@ updateProductDetails productDetails reportRow =
 
 prepareDetailsRequests : String -> Report -> List (Task Http.Error ProductDetails)
 prepareDetailsRequests token links =
-    Dict.values (Dict.map (\key value -> Http.toTask (getDetailsOfProduct token value)) links)
+    Dict.values
+        (Dict.map
+            (\key value ->
+                Http.toTask (getDetailsOfProduct token value)
+            )
+            links
+        )
 
 
 getDetailsOfProduct : String -> ReportRow -> Http.Request ProductDetails
@@ -331,6 +387,20 @@ getProducts =
     getApiUrl [ "entity", "product" ] Nothing
 
 
+remainsInfoListDecoder : Decode.Decoder (Dict String RemainsInfo)
+remainsInfoListDecoder =
+    field "rows" (list remainsInfoDecoder)
+        |> map (List.map (\row -> ( row.code, row )))
+        |> map Dict.fromList
+
+
+remainsInfoDecoder : Decode.Decoder RemainsInfo
+remainsInfoDecoder =
+    map2 RemainsInfo
+        (field "quantity" Decode.int)
+        (field "code" string)
+
+
 barCodeEncoder : Decode.Decoder ProductDetails
 barCodeEncoder =
     map4 ProductDetails
@@ -346,6 +416,27 @@ type alias ProductDetails =
     , name : String
     , id : String
     }
+
+
+reportRemains : List String -> String
+reportRemains productIds =
+    let
+        productIdsUrlEncoded =
+            List.map (\id -> Url.Builder.string "product.id" id) productIds
+    in
+    getApiUrl
+        [ "report"
+        , "stock"
+        , "all"
+        ]
+        (Just
+            (List.append
+                [ Url.Builder.int "limit" 100
+                , Url.Builder.string "stockMode" "all"
+                ]
+                productIdsUrlEncoded
+            )
+        )
 
 
 reportSalesByVariant : Int -> String
@@ -404,17 +495,19 @@ type alias ReportRow =
     , details : Maybe ProductDetails
     , saved : Bool
     , changed : Bool
+    , quantity : Maybe Int
     }
 
 
 reportRowDecoder : Decode.Decoder ReportRow
 reportRowDecoder =
-    map5 ReportRow
+    map6 ReportRow
         (field "code" string)
         (field "meta" (field "href" string))
         (succeed Nothing)
         (succeed True)
         (succeed False)
+        (succeed Nothing)
 
 
 getApiUrl : List String -> Maybe (List QueryParameter) -> String
@@ -469,7 +562,10 @@ renderProduct product =
                         "white"
             in
             li [ class "item mdl-card mdl-shadow--2dp", style "background" color ]
-                [ span [ class "mdl-card__title-text" ] [ text productDetails.name ]
+                [ div [ class "mdl-card__title" ]
+                    [ span [ class "mdl-card__title-text item__name" ] [ text productDetails.name ]
+                    , span [ class "item__quantity" ] [ text ("Склад: " ++ Maybe.withDefault "_" (Maybe.map String.fromInt product.quantity)) ]
+                    ]
                 , Html.form [ onSubmit (SaveBarCode productDetails.code) ]
                     [ div
                         [ class "mdl-textfield" ]

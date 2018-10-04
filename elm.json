@@ -12,6 +12,7 @@
             "elm/http": "1.0.0",
             "elm/json": "1.0.0",
             "elm/url": "1.0.0",
+            "elm-community/maybe-extra": "5.0.0",
             "truqu/elm-base64": "2.0.4"
         },
         "indirect": {
