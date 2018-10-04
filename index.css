@@ -4,6 +4,7 @@
   flex-wrap: wrap;
 }
 .items .item__name {
+  height: 80px;
   align-self: center;
   margin-top: 3px;
 }
