@@ -160,7 +160,7 @@ update msg model =
 
         ReportLoaded (Ok report) ->
             ( { model
-                | products = Dict.union model.products report
+                | products = Dict.union report model.products
                 , detailsRequests = Dict.size report
                 , loadingReport = False
               }
@@ -489,6 +489,7 @@ renderProduct product =
                             [ class "mdl-button mdl-button--colored mdl-js-button mdl-js-ripple-effect"
                             , type_ "submit"
                             , value "Сохранить"
+                            , tabindex -1
                             ]
                             []
                         ]
