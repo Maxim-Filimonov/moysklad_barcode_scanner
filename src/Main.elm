@@ -217,9 +217,15 @@ type alias Report =
     Dict String ReportRow
 
 
+
+-- loadRemainsForReport : Model -> Report -> List (Cmd Msg)
+-- loadRemainsForReport model report =
+--     Dict.values
+
+
 loadDetailsForReport : Model -> Report -> List (Cmd Msg)
 loadDetailsForReport model report =
-    prepareRequests model.token report
+    prepareDetailsRequests model.token report
         |> List.map (Task.attempt ProductDetailsLoaded)
 
 
@@ -300,13 +306,13 @@ updateProductDetails productDetails reportRow =
     Maybe.map (\row -> { row | details = Just productDetails }) reportRow
 
 
-prepareRequests : String -> Report -> List (Task Http.Error ProductDetails)
-prepareRequests token links =
-    Dict.values (Dict.map (\key value -> Http.toTask (createHttpRequest token value)) links)
+prepareDetailsRequests : String -> Report -> List (Task Http.Error ProductDetails)
+prepareDetailsRequests token links =
+    Dict.values (Dict.map (\key value -> Http.toTask (getDetailsOfProduct token value)) links)
 
 
-createHttpRequest : String -> ReportRow -> Http.Request ProductDetails
-createHttpRequest token reportRow =
+getDetailsOfProduct : String -> ReportRow -> Http.Request ProductDetails
+getDetailsOfProduct token reportRow =
     Http.request
         { method = "GET"
         , headers =
