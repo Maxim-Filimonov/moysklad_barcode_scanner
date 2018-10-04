@@ -241,7 +241,7 @@ loadRemainsForReport : String -> Report -> Http.Request RemainsInfos
 loadRemainsForReport token report =
     let
         visibleProducts =
-            filterChangedOrMissingBarcodes report
+            filterVisibleProducts report
 
         productIds =
             values (Dict.values (Dict.map (\key row -> Maybe.map .id row.details) visibleProducts))
@@ -299,8 +299,15 @@ filterOnlyMissingBarcodes report =
     Dict.filter rowHasMissingBarcodes report
 
 
-filterChangedOrMissingBarcodes report =
-    Dict.filter (\code row -> rowHasMissingBarcodes code row || rowIsChanged code row || rowInStock code row) report
+filterVisibleProducts report =
+    Dict.filter
+        (\code row ->
+            (rowHasMissingBarcodes code row
+                || rowIsChanged code row
+            )
+                && rowInStock code row
+        )
+        report
 
 
 rowInStock : String -> ReportRow -> Bool
@@ -644,7 +651,7 @@ view model =
                     ]
                     [ text "Загрузить данные" ]
                 ]
-            , Html.main_ [] [ renderListOrLoading model.detailsRequests model.loadingReport (filterChangedOrMissingBarcodes model.products) ]
+            , Html.main_ [] [ renderListOrLoading model.detailsRequests model.loadingReport (filterVisibleProducts model.products) ]
             ]
 
 
