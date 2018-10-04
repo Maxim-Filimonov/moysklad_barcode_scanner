@@ -220,7 +220,7 @@ type alias Report =
 
 -- loadRemainsForReport : Model -> Report -> List (Cmd Msg)
 -- loadRemainsForReport model report =
---     Dict.values
+--     Dict.map (\key row -> row.)
 
 
 loadDetailsForReport : Model -> Report -> List (Cmd Msg)
@@ -407,7 +407,6 @@ type alias ReportRow =
     { code : String
     , href : String
     , details : Maybe ProductDetails
-    , id : Maybe String
     , saved : Bool
     , changed : Bool
     }
@@ -415,10 +414,9 @@ type alias ReportRow =
 
 reportRowDecoder : Decode.Decoder ReportRow
 reportRowDecoder =
-    map6 ReportRow
+    map5 ReportRow
         (field "code" string)
         (field "meta" (field "href" string))
-        (succeed Nothing)
         (succeed Nothing)
         (succeed True)
         (succeed False)
