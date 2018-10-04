@@ -393,11 +393,6 @@ productCodeEncoder =
         |> map Dict.fromList
 
 
-
--- |> map Dict.fromList
--- map Dict.fromList (dict (field "rows" (list assortmentDecoder)))
-
-
 assortmentDecoder : Decode.Decoder ReportRow
 assortmentDecoder =
     field "assortment" reportRowDecoder
