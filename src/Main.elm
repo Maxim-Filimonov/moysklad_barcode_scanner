@@ -121,8 +121,8 @@ update msg model =
         TokenCheck (Ok product) ->
             ( { model | loggedIn = True }, setToken model.token )
 
-        TokenCheck (Err _) ->
-            ( model, Cmd.none )
+        TokenCheck (Err err) ->
+            ( { model | err = Just err }, Cmd.none )
 
         LoadReport ->
             ( { model | loadingReport = True }
