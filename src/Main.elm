@@ -143,9 +143,6 @@ update msg model =
 
                 updatedProducts =
                     addProductDetails details model.products
-
-                _ =
-                    Debug.log "Details loaded for " ( details.code, details.id )
             in
             if productDetailsLoaded updatedProducts then
                 ( { model
