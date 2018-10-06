@@ -367,7 +367,7 @@ updateBarcodes barcode reportRow =
 
 updateBarcodeWithinProductDetails : String -> Maybe ProductDetails -> Maybe ProductDetails
 updateBarcodeWithinProductDetails barcode productDetails =
-    Maybe.map (\details -> { details | barcodes = [ barcode ] }) productDetails
+    Maybe.map (\details -> { details | barcodes = Just [ barcode ] }) productDetails
 
 
 updateProductDetails : ProductDetails -> Maybe ReportRow -> Maybe ReportRow
@@ -406,32 +406,32 @@ getProducts =
     getApiUrl [ "entity", "product" ] Nothing
 
 
-remainsInfoListDecoder : Decode.Decoder (Dict String RemainsInfo)
+remainsInfoListDecoder : D.Decoder (Dict String RemainsInfo)
 remainsInfoListDecoder =
     field "rows" (list remainsInfoDecoder)
         |> map (List.map (\row -> ( row.code, row )))
         |> map Dict.fromList
 
 
-remainsInfoDecoder : Decode.Decoder RemainsInfo
+remainsInfoDecoder : D.Decoder RemainsInfo
 remainsInfoDecoder =
     map2 RemainsInfo
-        (field "quantity" Decode.int)
+        (field "quantity" D.int)
         (field "code" string)
 
 
-barCodeEncoder : Decode.Decoder ProductDetails
+barCodeEncoder : D.Decoder ProductDetails
 barCodeEncoder =
     map4 ProductDetails
         (field "code" string)
-        (field "barcodes" (list string))
+        (D.maybe (field "barcodes" (list string)))
         (field "name" string)
         (field "id" string)
 
 
 type alias ProductDetails =
     { code : String
-    , barcodes : List String
+    , barcodes : Maybe (List String)
     , name : String
     , id : String
     }
@@ -487,7 +487,7 @@ barcodeEncoderForReal : ProductDetails -> Http.Body
 barcodeEncoderForReal productDetails =
     Http.jsonBody
         (E.object
-            [ ( "barcodes", E.list E.string productDetails.barcodes )
+            [ ( "barcodes", E.list E.string (Maybe.withDefault [] productDetails.barcodes) )
             ]
         )
 
@@ -496,14 +496,14 @@ barcodeEncoderForReal productDetails =
 -- "https://online.moysklad.ru/api/remap/1.1/report/sales/byvariant"
 
 
-productCodeEncoder : Decode.Decoder Report
+productCodeEncoder : D.Decoder Report
 productCodeEncoder =
     field "rows" (list assortmentDecoder)
         |> map (List.map (\row -> ( row.code, row )))
         |> map Dict.fromList
 
 
-assortmentDecoder : Decode.Decoder ReportRow
+assortmentDecoder : D.Decoder ReportRow
 assortmentDecoder =
     field "assortment" reportRowDecoder
 
@@ -518,7 +518,7 @@ type alias ReportRow =
     }
 
 
-reportRowDecoder : Decode.Decoder ReportRow
+reportRowDecoder : D.Decoder ReportRow
 reportRowDecoder =
     map6 ReportRow
         (field "code" string)
@@ -552,9 +552,14 @@ subscriptions model =
 -- VIEW
 
 
-missingBarcodes : List String -> Bool
+missingBarcodes : Maybe (List String) -> Bool
 missingBarcodes barcodes =
-    List.all isGeneratedBarcode barcodes
+    case barcodes of
+        Nothing ->
+            True
+
+        Just value ->
+            List.all isGeneratedBarcode value
 
 
 isGeneratedBarcode : String -> Bool
@@ -568,7 +573,7 @@ renderProduct product =
         Just productDetails ->
             let
                 barcode =
-                    Maybe.withDefault "" (List.head productDetails.barcodes)
+                    Maybe.withDefault "" (Maybe.andThen List.head productDetails.barcodes)
 
                 color =
                     if product.changed && product.saved then
