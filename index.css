@@ -3,6 +3,9 @@
   flex-direction: row;
   flex-wrap: wrap;
 }
+.error {
+  color: red;
+}
 .items .item__name {
   height: 80px;
   align-self: center;
