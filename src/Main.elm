@@ -132,7 +132,7 @@ update msg model =
         ProductDetailsLoaded (Ok details) ->
             let
                 enoughProducts =
-                    Dict.size (filterOnlyMissingBarcodes model.products) > 10
+                    Dict.size (filterOnlyMissingBarcodes updatedProducts) > 10
 
                 newPage =
                     if enoughProducts then
@@ -148,6 +148,7 @@ update msg model =
                 ( { model
                     | products = updatedProducts
                     , page = newPage
+                    , loadingReport = not enoughProducts
                   }
                 , if enoughProducts then
                     Http.send LoadedRemains (loadRemainsForReport model.token updatedProducts)
@@ -669,7 +670,7 @@ renderMain model =
                     ]
                     [ text "Загрузить данные" ]
                 ]
-            , Html.main_ [] [ renderListOrLoading (productDetailsLoaded model.products) (filterVisibleProducts model.products) ]
+            , Html.main_ [] [ renderListOrLoading (productDetailsLoaded model.products && not model.loadingReport) (filterVisibleProducts model.products) ]
             ]
 
 
