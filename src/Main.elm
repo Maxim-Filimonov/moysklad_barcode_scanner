@@ -9,7 +9,7 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import Http exposing (toTask)
-import Json.Decode as Decode exposing (Decoder, andThen, array, dict, field, list, map, map2, map3, map4, map5, map6, string, succeed)
+import Json.Decode as D exposing (Decoder, andThen, array, dict, field, list, map, map2, map3, map4, map5, map6, string, succeed)
 import Json.Encode as E
 import Maybe.Extra exposing (values)
 import Process exposing (spawn)
@@ -45,7 +45,6 @@ type alias Model =
     , products : Report
     , err : Maybe Http.Error
     , page : Int
-    , detailsRequests : Int
     , loadingReport : Bool
     }
 
@@ -54,12 +53,12 @@ init : Maybe String -> ( Model, Cmd Msg )
 init authToken =
     case authToken of
         Just token ->
-            ( Model "" "" token True Dict.empty Nothing 1 0 False
+            ( Model "" "" token True Dict.empty Nothing 1 False
             , Cmd.none
             )
 
         Nothing ->
-            ( Model "" "" "" False Dict.empty Nothing 1 0 False
+            ( Model "" "" "" False Dict.empty Nothing 1 False
             , Cmd.none
             )
 
@@ -141,16 +140,20 @@ update msg model =
 
                     else
                         model.page + 1
+
+                updatedProducts =
+                    addProductDetails details model.products
+
+                _ =
+                    Debug.log "Details loaded for " ( details.code, details.id )
             in
-            if model.detailsRequests == 1 then
+            if productDetailsLoaded updatedProducts then
                 ( { model
-                    | detailsRequests = 0
-                    , products = addProductDetails details model.products
+                    | products = updatedProducts
                     , page = newPage
-                    , loadingReport = not enoughProducts
                   }
                 , if enoughProducts then
-                    Http.send LoadedRemains (loadRemainsForReport model.token model.products)
+                    Http.send LoadedRemains (loadRemainsForReport model.token updatedProducts)
 
                   else
                     Http.send ReportLoaded (loadReport model.token newPage)
@@ -158,19 +161,19 @@ update msg model =
 
             else
                 ( { model
-                    | detailsRequests = model.detailsRequests - 1
-                    , products = addProductDetails details model.products
+                    | products = updatedProducts
                   }
                 , Cmd.none
                 )
 
         ProductDetailsLoaded (Err err) ->
-            ( model, Cmd.none )
+            ( { model | err = Just err }
+            , Cmd.none
+            )
 
         ReportLoaded (Ok report) ->
             ( { model
                 | products = Dict.union report model.products
-                , detailsRequests = Dict.size report
               }
             , loadDetailsForReport model report
                 |> Cmd.batch
@@ -201,6 +204,10 @@ update msg model =
 
         LoadedRemains (Err err) ->
             ( { model | err = Just err }, Cmd.none )
+
+
+productDetailsLoaded report =
+    List.all Maybe.Extra.isJust (List.map .details (Dict.values report))
 
 
 updateRemains : Dict String RemainsInfo -> Report -> Report
@@ -607,8 +614,17 @@ renderProduct product =
             li [] []
 
 
-view : Model -> Html Msg
-view model =
+showError : String -> Html Msg
+showError error =
+    div [ class "error" ]
+        [ div [ class "error__header" ]
+            [ h2 [] [ text "Возникла ошибка. Сообщите разработчику." ] ]
+        , div [ class "error__content" ]
+            [ p [ class "error__message" ] [ text error ] ]
+        ]
+
+
+renderMain model =
     if not model.loggedIn then
         div [ class "loginWrapper" ]
             [ Html.form [ class "loginForm", onSubmit GetToken ]
@@ -651,13 +667,35 @@ view model =
                     ]
                     [ text "Загрузить данные" ]
                 ]
-            , Html.main_ [] [ renderListOrLoading model.detailsRequests model.loadingReport (filterVisibleProducts model.products) ]
+            , Html.main_ [] [ renderListOrLoading (productDetailsLoaded model.products) (filterVisibleProducts model.products) ]
             ]
 
 
-renderListOrLoading : Int -> Bool -> Report -> Html Msg
-renderListOrLoading detailsRequests loadingReport report =
-    if (detailsRequests > 1) || loadingReport then
+view : Model -> Html Msg
+view model =
+    case model.err of
+        Nothing ->
+            renderMain model
+
+        Just (Http.BadUrl value) ->
+            showError ("Неправильная ссылка " ++ value)
+
+        Just Http.Timeout ->
+            showError "Превышено время ожидания"
+
+        Just Http.NetworkError ->
+            showError "Пропала связь. Попробуйте еще раз."
+
+        Just (Http.BadStatus response) ->
+            showError ("Неправильный ответ от сервера:" ++ response.url ++ "|" ++ response.status.message)
+
+        Just (Http.BadPayload error response) ->
+            showError ("Ошибка при обработке запроса:" ++ error ++ " || " ++ response.url ++ response.status.message)
+
+
+renderListOrLoading : Bool -> Report -> Html Msg
+renderListOrLoading allDetailsLoaded report =
+    if not allDetailsLoaded then
         div [ class "loading" ]
             [ span [] [ text "Загружается..." ] ]
 
