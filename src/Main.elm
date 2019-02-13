@@ -5,15 +5,14 @@ port module Main exposing (main)
 import Base64
 import Browser
 import Dict exposing (Dict)
-import Html exposing (..)
-import Html.Attributes exposing (..)
-import Html.Events exposing (..)
+import Html exposing (Html, div, li, span, text, input, label, h2, p, header, h3, button, ul)
+import Html.Attributes exposing(class, style, type_, value, id, for, tabindex, placeholder)
+import Html.Events exposing (onSubmit, onInput, onClick)
 import Http exposing (toTask)
-import Json.Decode as D exposing (Decoder, andThen, array, dict, field, list, map, map2, map3, map4, map5, map6, string, succeed)
+import Json.Decode as D exposing (andThen, field, list, map, map2, map4, map6, string, succeed)
 import Json.Encode as E
 import Maybe.Extra exposing (values)
-import Process exposing (spawn)
-import Task exposing (Task, perform, sequence)
+import Task exposing (Task)
 import Url.Builder exposing (QueryParameter, crossOrigin)
 
 
@@ -24,6 +23,7 @@ port setToken : String -> Cmd msg
 -- MAIN
 
 
+main: Program (Maybe String) Model Msg
 main =
     Browser.element
         { init = init
@@ -118,7 +118,7 @@ update msg model =
                     }
             )
 
-        TokenCheck (Ok product) ->
+        TokenCheck (Ok _) ->
             ( { model | loggedIn = True }, setToken model.token )
 
         TokenCheck (Err err) ->
@@ -144,7 +144,7 @@ update msg model =
                 updatedProducts =
                     addProductDetails details model.products
             in
-            if productDetailsLoaded updatedProducts then
+            if isProductDetailsLoaded updatedProducts then
                 ( { model
                     | products = updatedProducts
                     , page = newPage
@@ -204,7 +204,8 @@ update msg model =
             ( { model | err = Just err }, Cmd.none )
 
 
-productDetailsLoaded report =
+isProductDetailsLoaded: Report -> Bool
+isProductDetailsLoaded report =
     List.all Maybe.Extra.isJust (List.map .details (Dict.values report))
 
 
@@ -233,10 +234,6 @@ updateBarcode token productDetails =
             Cmd.none
 
 
-addProductDetailsResultsToReport : Report -> List ProductDetails -> Report
-addProductDetailsResultsToReport report productDetails =
-    List.foldl addProductDetails report productDetails
-
 
 type alias RemainsInfos =
     Dict String RemainsInfo
@@ -249,7 +246,7 @@ loadRemainsForReport token report =
             filterVisibleProducts report
 
         productIds =
-            values (Dict.values (Dict.map (\key row -> Maybe.map .id row.details) visibleProducts))
+            values (Dict.values (Dict.map (\_ row -> Maybe.map .id row.details) visibleProducts))
     in
     prepareRemainsRequest token productIds
 
@@ -267,11 +264,6 @@ prepareRemainsRequest token productIds =
         , timeout = Nothing
         , withCredentials = False
         }
-
-
-addProductDetailsToReport : Report -> Task Http.Error ProductDetails -> Task Http.Error Report
-addProductDetailsToReport report detailsTask =
-    Task.map (\details -> addProductDetails details report) detailsTask
 
 
 type alias Report =
@@ -304,26 +296,27 @@ filterOnlyMissingBarcodes report =
     Dict.filter rowHasMissingBarcodes report
 
 
+filterVisibleProducts: Report -> Report
 filterVisibleProducts report =
     Dict.filter
         (\code row ->
             (rowHasMissingBarcodes code row
-                || rowIsChanged code row
+                || rowIsChanged row
             )
-                && rowInStock code row
+                && rowInStock row
         )
         report
 
 
-rowInStock : String -> ReportRow -> Bool
-rowInStock code row =
+rowInStock :  ReportRow -> Bool
+rowInStock row =
     Maybe.withDefault True (Maybe.map (\quantity -> quantity > 0) row.quantity)
 
 
-rowIsChanged : String -> ReportRow -> Bool
-rowIsChanged code row =
+rowIsChanged : ReportRow -> Bool
+rowIsChanged row =
     case row.details of
-        Just productDetails ->
+        Just _ ->
             row.changed
 
         Nothing ->
@@ -331,7 +324,7 @@ rowIsChanged code row =
 
 
 rowHasMissingBarcodes : String -> ReportRow -> Bool
-rowHasMissingBarcodes code row =
+rowHasMissingBarcodes _ row =
     case row.details of
         Just productDetails ->
             missingBarcodes productDetails.barcodes
@@ -377,7 +370,7 @@ prepareDetailsRequests : String -> Report -> List (Task Http.Error ProductDetail
 prepareDetailsRequests token links =
     Dict.values
         (Dict.map
-            (\key value ->
+            (\_ value ->
                 Http.toTask (getDetailsOfProduct token value)
             )
             links
@@ -542,7 +535,7 @@ getProxyUrl =
 
 
 subscriptions : Model -> Sub Msg
-subscriptions model =
+subscriptions _ =
     Sub.none
 
 
@@ -627,6 +620,7 @@ showError error =
         ]
 
 
+renderMain: Model -> Html Msg
 renderMain model =
     if not model.loggedIn then
         div [ class "loginWrapper" ]
@@ -670,7 +664,7 @@ renderMain model =
                     ]
                     [ text "Загрузить данные" ]
                 ]
-            , Html.main_ [] [ renderListOrLoading (productDetailsLoaded model.products && not model.loadingReport) (filterVisibleProducts model.products) ]
+            , Html.main_ [] [ renderListOrLoading (isProductDetailsLoaded model.products && not model.loadingReport) (filterVisibleProducts model.products) ]
             ]
 
 
