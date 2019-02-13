@@ -6,13 +6,14 @@ import Base64
 import Browser
 import Dict exposing (Dict)
 import Model exposing(Report,RemainsInfo, ProductDetails, ReportRow)
-import Parsers exposing (remainsInfoListDecoder, productCodeEncoder, barCodeEncoder, barcodeEncoderForReal)
+import Parsers exposing (remainsInfoListDecoder, productCodeDecoder, barCodeEncoder, barcodeEncoderForReal)
 import Html exposing (Html, div, li, span, text, input, label, h2, p, header, h3, button, ul)
 import Html.Attributes exposing(class, style, type_, value, id, for, tabindex, placeholder)
 import Html.Events exposing (onSubmit, onInput, onClick)
 import Http exposing (toTask)
 import Task exposing (Task)
 import Url.Builder exposing (QueryParameter, crossOrigin)
+import Maybe.Extra exposing(values, isJust)
 
 
 port setToken : String -> Cmd msg
@@ -197,7 +198,7 @@ update msg model =
 
 isProductDetailsLoaded: Report -> Bool
 isProductDetailsLoaded report =
-    List.all Maybe.Extra.isJust (List.map .details (Dict.values report))
+    List.all isJust (List.map .details (Dict.values report))
 
 
 updateRemains : Dict String RemainsInfo -> Report -> Report
@@ -274,7 +275,7 @@ loadReport token page =
             ]
         , url = reportSalesByVariant page
         , body = Http.emptyBody
-        , expect = Http.expectJson productCodeEncoder
+        , expect = Http.expectJson productCodeDecoder
         , timeout = Nothing
         , withCredentials = False
         }

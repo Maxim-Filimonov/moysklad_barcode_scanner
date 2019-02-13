@@ -1,12 +1,12 @@
-module Parsers exposing(remainsInfoListDecoder, productCodeEncoder, barCodeEncoder, barcodeEncoderForReal)
+module Parsers exposing(remainsInfoListDecoder, productCodeDecoder, barCodeEncoder, barcodeEncoderForReal)
 import Model exposing(Report, ReportRow, RemainsInfo, ProductDetails)
 import Dict exposing(Dict,fromList)
 import Json.Decode as D exposing (field, list, map, map2, map4, map6, string, succeed)
 import Json.Encode as E
 import Http exposing(Body)
 
-productCodeEncoder : D.Decoder Report
-productCodeEncoder =
+productCodeDecoder : D.Decoder Report
+productCodeDecoder =
     field "rows" (list assortmentDecoder)
         |> map (List.map (\row -> ( row.code, row )))
         |> map fromList
