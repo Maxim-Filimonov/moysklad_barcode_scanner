@@ -6,7 +6,7 @@ import Base64
 import Browser
 import Dict exposing (Dict)
 import Model exposing(Report,RemainsInfo, ProductDetails, ReportRow)
-import Parsers exposing (remainsInfoListDecoder, productCodeDecoder, barCodeEncoder, barcodeEncoderForReal)
+import Parsers exposing (remainsInfoListDecoder, productCodeDecoder, barCodeDecoder, barCodeDecoderForReal)
 import Html exposing (Html, div, li, span, text, input, label, h2, p, header, h3, button, ul)
 import Html.Attributes exposing(class, style, type_, value, id, for, tabindex, placeholder)
 import Html.Events exposing (onSubmit, onInput, onClick)
@@ -376,7 +376,7 @@ getDetailsOfProduct token reportRow =
             ]
         , url = getProxyUrl [ reportRow.href ] []
         , body = Http.emptyBody
-        , expect = Http.expectJson barCodeEncoder
+        , expect = Http.expectJson barCodeDecoder
         , timeout = Nothing
         , withCredentials = False
         }
@@ -430,8 +430,8 @@ sendBarcodeUpdate token details =
             [ Http.header "Authorization" token
             ]
         , url = getApiUrl [ "entity", "product", details.id ] Nothing
-        , body = barcodeEncoderForReal details
-        , expect = Http.expectJson barCodeEncoder
+        , body = barCodeDecoderForReal details
+        , expect = Http.expectJson barCodeDecoder
         , timeout = Nothing
         , withCredentials = False
         }
