@@ -5,19 +5,17 @@ port module Main exposing (main)
 import Base64
 import Browser
 import Dict exposing (Dict)
+import Model exposing(Report,RemainsInfo, ProductDetails, ReportRow)
+import Parsers exposing (remainsInfoListDecoder, productCodeEncoder, barCodeEncoder, barcodeEncoderForReal)
 import Html exposing (Html, div, li, span, text, input, label, h2, p, header, h3, button, ul)
 import Html.Attributes exposing(class, style, type_, value, id, for, tabindex, placeholder)
 import Html.Events exposing (onSubmit, onInput, onClick)
 import Http exposing (toTask)
-import Json.Decode as D exposing (andThen, field, list, map, map2, map4, map6, string, succeed)
-import Json.Encode as E
-import Maybe.Extra exposing (values)
 import Task exposing (Task)
 import Url.Builder exposing (QueryParameter, crossOrigin)
 
 
 port setToken : String -> Cmd msg
-
 
 
 -- MAIN
@@ -75,13 +73,6 @@ type Msg
     | UpdateProductBarcode String String
     | BarcodeUpdated (Result Http.Error ProductDetails)
     | LoadedRemains (Result Http.Error (Dict String RemainsInfo))
-
-
-type alias RemainsInfo =
-    { quantity : Int
-    , code : String
-    }
-
 
 
 -- UPDATE
@@ -266,8 +257,6 @@ prepareRemainsRequest token productIds =
         }
 
 
-type alias Report =
-    Dict String ReportRow
 
 
 loadDetailsForReport : Model -> Report -> List (Cmd Msg)
@@ -397,35 +386,8 @@ getProducts =
     getApiUrl [ "entity", "product" ] Nothing
 
 
-remainsInfoListDecoder : D.Decoder (Dict String RemainsInfo)
-remainsInfoListDecoder =
-    field "rows" (list remainsInfoDecoder)
-        |> map (List.map (\row -> ( row.code, row )))
-        |> map Dict.fromList
 
 
-remainsInfoDecoder : D.Decoder RemainsInfo
-remainsInfoDecoder =
-    map2 RemainsInfo
-        (field "quantity" D.int)
-        (field "code" string)
-
-
-barCodeEncoder : D.Decoder ProductDetails
-barCodeEncoder =
-    map4 ProductDetails
-        (field "code" string)
-        (D.maybe (field "barcodes" (list string)))
-        (field "name" string)
-        (field "id" string)
-
-
-type alias ProductDetails =
-    { code : String
-    , barcodes : Maybe (List String)
-    , name : String
-    , id : String
-    }
 
 
 reportRemains : List String -> String
@@ -474,50 +436,16 @@ sendBarcodeUpdate token details =
         }
 
 
-barcodeEncoderForReal : ProductDetails -> Http.Body
-barcodeEncoderForReal productDetails =
-    Http.jsonBody
-        (E.object
-            [ ( "barcodes", E.list E.string (Maybe.withDefault [] productDetails.barcodes) )
-            ]
-        )
 
 
 
 -- "https://online.moysklad.ru/api/remap/1.1/report/sales/byvariant"
 
 
-productCodeEncoder : D.Decoder Report
-productCodeEncoder =
-    field "rows" (list assortmentDecoder)
-        |> map (List.map (\row -> ( row.code, row )))
-        |> map Dict.fromList
 
 
-assortmentDecoder : D.Decoder ReportRow
-assortmentDecoder =
-    field "assortment" reportRowDecoder
 
 
-type alias ReportRow =
-    { code : String
-    , href : String
-    , details : Maybe ProductDetails
-    , saved : Bool
-    , changed : Bool
-    , quantity : Maybe Int
-    }
-
-
-reportRowDecoder : D.Decoder ReportRow
-reportRowDecoder =
-    map6 ReportRow
-        (field "code" string)
-        (field "meta" (field "href" string))
-        (succeed Nothing)
-        (succeed True)
-        (succeed False)
-        (succeed Nothing)
 
 
 getApiUrl : List String -> Maybe (List QueryParameter) -> String
