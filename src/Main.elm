@@ -5,24 +5,25 @@ port module Main exposing (main)
 import Base64
 import Browser
 import Dict exposing (Dict)
-import Model exposing(Report,RemainsInfo, ProductDetails, ReportRow)
-import Parsers exposing (remainsInfoListDecoder, productCodeDecoder, barCodeDecoder, barCodeDecoderForReal)
-import Html exposing (Html, div, li, span, text, input, label, h2, p, header, h3, button, ul)
-import Html.Attributes exposing(class, style, type_, value, id, for, tabindex, placeholder)
-import Html.Events exposing (onSubmit, onInput, onClick)
-import Http exposing (toTask)
+import Html exposing (Html, button, div, h2, h3, header, input, label, li, p, span, text, ul)
+import Html.Attributes exposing (class, disabled, for, id, placeholder, style, tabindex, type_, value)
+import Html.Events exposing (onClick, onInput, onSubmit)
+import Http
+import Maybe.Extra exposing (isJust, values)
+import Model exposing (ProductDetails, RemainsInfo, Report, ReportRow)
+import Parsers exposing (barCodeDecoder, barCodeDecoderForReal, productCodeDecoder, remainsInfoListDecoder)
 import Task exposing (Task)
 import Url.Builder exposing (QueryParameter, crossOrigin)
-import Maybe.Extra exposing(values, isJust)
 
 
 port setToken : String -> Cmd msg
 
 
+
 -- MAIN
 
 
-main: Program (Maybe String) Model Msg
+main : Program (Maybe String) Model Msg
 main =
     Browser.element
         { init = init
@@ -43,8 +44,10 @@ type alias Model =
     , loggedIn : Bool
     , products : Report
     , err : Maybe Http.Error
+    , errorMessage : Maybe String
     , page : Int
     , loadingReport : Bool
+    , loginInProgress : Bool
     }
 
 
@@ -52,12 +55,33 @@ init : Maybe String -> ( Model, Cmd Msg )
 init authToken =
     case authToken of
         Just token ->
-            ( Model "" "" token True Dict.empty Nothing 1 False
+            ( { login = ""
+              , password = ""
+              , token = token
+              , loggedIn = True
+              , products = Dict.empty
+              , err = Nothing
+              , errorMessage = Nothing
+              , page = 1
+              , loadingReport = False
+              , loginInProgress = False
+              }
+              -- Model "" "" token True Dict.empty Nothing 1 False
             , Cmd.none
             )
 
         Nothing ->
-            ( Model "" "" "" False Dict.empty Nothing 1 False
+            ( { login = ""
+              , password = ""
+              , token = ""
+              , loggedIn = False
+              , products = Dict.empty
+              , err = Nothing
+              , errorMessage = Nothing
+              , page = 1
+              , loadingReport = False
+              , loginInProgress = False
+              }
             , Cmd.none
             )
 
@@ -74,6 +98,7 @@ type Msg
     | UpdateProductBarcode String String
     | BarcodeUpdated (Result Http.Error ProductDetails)
     | LoadedRemains (Result Http.Error (Dict String RemainsInfo))
+
 
 
 -- UPDATE
@@ -95,30 +120,42 @@ update msg model =
                 token =
                     "Basic " ++ buildAuthorizationToken model.login model.password
             in
-            ( { model | token = token }
-            , Http.send TokenCheck <|
-                Http.request
-                    { method = "GET"
-                    , headers =
-                        [ Http.header "Authorization" token
-                        ]
-                    , url = getProducts
-                    , body = Http.emptyBody
-                    , expect = Http.expectString
-                    , timeout = Nothing
-                    , withCredentials = False
-                    }
+            ( { model | token = token, loginInProgress = True }
+            , Http.request
+                { method = "GET"
+                , headers =
+                    [ Http.header "Authorization" token
+                    ]
+                , url = getProducts
+                , body = Http.emptyBody
+                , expect = Http.expectString TokenCheck
+                , timeout = Nothing
+                , tracker = Nothing
+                }
             )
 
         TokenCheck (Ok _) ->
-            ( { model | loggedIn = True }, setToken model.token )
+            ( { model | loggedIn = True, loginInProgress = False, errorMessage = Nothing }, setToken model.token )
 
         TokenCheck (Err err) ->
-            ( { model | err = Just err }, Cmd.none )
+            let
+                errorMessage =
+                    case err of
+                        Http.BadStatus status ->
+                            if status == 401 then
+                                "Неправильный логин или пароль"
+
+                            else
+                                "Неизвестная ошибка, статус:" ++ String.fromInt status
+
+                        _ ->
+                            "Неизвестная ошибка"
+            in
+            ( { model | errorMessage = Just errorMessage, loginInProgress = False }, Cmd.none )
 
         LoadReport ->
             ( { model | loadingReport = True }
-            , Http.send ReportLoaded (loadReport model.token model.page)
+            , loadReport model.token model.page
             )
 
         ProductDetailsLoaded (Ok details) ->
@@ -143,10 +180,10 @@ update msg model =
                     , loadingReport = not enoughProducts
                   }
                 , if enoughProducts then
-                    Http.send LoadedRemains (loadRemainsForReport model.token updatedProducts)
+                    loadRemainsForReport model.token updatedProducts
 
                   else
-                    Http.send ReportLoaded (loadReport model.token newPage)
+                    loadReport model.token newPage
                 )
 
             else
@@ -196,7 +233,7 @@ update msg model =
             ( { model | err = Just err }, Cmd.none )
 
 
-isProductDetailsLoaded: Report -> Bool
+isProductDetailsLoaded : Report -> Bool
 isProductDetailsLoaded report =
     List.all isJust (List.map .details (Dict.values report))
 
@@ -220,18 +257,17 @@ updateBarcode : String -> Maybe ProductDetails -> Cmd Msg
 updateBarcode token productDetails =
     case productDetails of
         Just val ->
-            Http.send BarcodeUpdated (sendBarcodeUpdate token val)
+            sendBarcodeUpdate token val
 
         Nothing ->
             Cmd.none
-
 
 
 type alias RemainsInfos =
     Dict String RemainsInfo
 
 
-loadRemainsForReport : String -> Report -> Http.Request RemainsInfos
+loadRemainsForReport : String -> Report -> Cmd Msg
 loadRemainsForReport token report =
     let
         visibleProducts =
@@ -243,7 +279,7 @@ loadRemainsForReport token report =
     prepareRemainsRequest token productIds
 
 
-prepareRemainsRequest : String -> List String -> Http.Request RemainsInfos
+prepareRemainsRequest : String -> List String -> Cmd Msg
 prepareRemainsRequest token productIds =
     Http.request
         { method = "GET"
@@ -252,21 +288,22 @@ prepareRemainsRequest token productIds =
             ]
         , url = reportRemains productIds
         , body = Http.emptyBody
-        , expect = Http.expectJson remainsInfoListDecoder
+        , expect = Http.expectJson LoadedRemains remainsInfoListDecoder
         , timeout = Nothing
-        , withCredentials = False
+        , tracker = Nothing
         }
-
-
 
 
 loadDetailsForReport : Model -> Report -> List (Cmd Msg)
 loadDetailsForReport model report =
     prepareDetailsRequests model.token report
-        |> List.map (Task.attempt ProductDetailsLoaded)
 
 
-loadReport : String -> Int -> Http.Request Report
+
+-- |> List.map (Task.attempt ProductDetailsLoaded)
+
+
+loadReport : String -> Int -> Cmd Msg
 loadReport token page =
     Http.request
         { method = "GET"
@@ -275,9 +312,9 @@ loadReport token page =
             ]
         , url = reportSalesByVariant page
         , body = Http.emptyBody
-        , expect = Http.expectJson productCodeDecoder
+        , expect = Http.expectJson ReportLoaded productCodeDecoder
         , timeout = Nothing
-        , withCredentials = False
+        , tracker = Nothing
         }
 
 
@@ -286,7 +323,7 @@ filterOnlyMissingBarcodes report =
     Dict.filter rowHasMissingBarcodes report
 
 
-filterVisibleProducts: Report -> Report
+filterVisibleProducts : Report -> Report
 filterVisibleProducts report =
     Dict.filter
         (\code row ->
@@ -298,7 +335,7 @@ filterVisibleProducts report =
         report
 
 
-rowInStock :  ReportRow -> Bool
+rowInStock : ReportRow -> Bool
 rowInStock row =
     Maybe.withDefault True (Maybe.map (\quantity -> quantity > 0) row.quantity)
 
@@ -356,18 +393,18 @@ updateProductDetails productDetails reportRow =
     Maybe.map (\row -> { row | details = Just productDetails }) reportRow
 
 
-prepareDetailsRequests : String -> Report -> List (Task Http.Error ProductDetails)
+prepareDetailsRequests : String -> Report -> List (Cmd Msg)
 prepareDetailsRequests token links =
     Dict.values
         (Dict.map
             (\_ value ->
-                Http.toTask (getDetailsOfProduct token value)
+                getDetailsOfProduct token value
             )
             links
         )
 
 
-getDetailsOfProduct : String -> ReportRow -> Http.Request ProductDetails
+getDetailsOfProduct : String -> ReportRow -> Cmd Msg
 getDetailsOfProduct token reportRow =
     Http.request
         { method = "GET"
@@ -376,19 +413,15 @@ getDetailsOfProduct token reportRow =
             ]
         , url = getProxyUrl [ reportRow.href ] []
         , body = Http.emptyBody
-        , expect = Http.expectJson barCodeDecoder
+        , expect = Http.expectJson ProductDetailsLoaded barCodeDecoder
         , timeout = Nothing
-        , withCredentials = False
+        , tracker = Nothing
         }
 
 
 getProducts : String
 getProducts =
     getApiUrl [ "entity", "product" ] Nothing
-
-
-
-
 
 
 reportRemains : List String -> String
@@ -422,7 +455,7 @@ reportSalesByVariant page =
         (Just [ Url.Builder.int "offset" (page * 25), Url.Builder.int "limit" 50 ])
 
 
-sendBarcodeUpdate : String -> ProductDetails -> Http.Request ProductDetails
+sendBarcodeUpdate : String -> ProductDetails -> Cmd Msg
 sendBarcodeUpdate token details =
     Http.request
         { method = "PUT"
@@ -431,22 +464,14 @@ sendBarcodeUpdate token details =
             ]
         , url = getApiUrl [ "entity", "product", details.id ] Nothing
         , body = barCodeDecoderForReal details
-        , expect = Http.expectJson barCodeDecoder
+        , expect = Http.expectJson BarcodeUpdated barCodeDecoder
         , timeout = Nothing
-        , withCredentials = False
+        , tracker = Nothing
         }
 
 
 
-
-
 -- "https://online.moysklad.ru/api/remap/1.1/report/sales/byvariant"
-
-
-
-
-
-
 
 
 getApiUrl : List String -> Maybe (List QueryParameter) -> String
@@ -542,42 +567,51 @@ renderProduct product =
 showError : String -> Html Msg
 showError error =
     div [ class "error" ]
-        [ div [ class "error__header" ]
-            [ h2 [] [ text "Возникла ошибка. Сообщите разработчику." ] ]
-        , div [ class "error__content" ]
+        [ div [ class "error__content" ]
             [ p [ class "error__message" ] [ text error ] ]
         ]
 
 
-renderMain: Model -> Html Msg
+renderLogin : Model -> Html Msg
+renderLogin model =
+    div [ class "loginWrapper" ]
+        [ Html.form [ class "loginForm", onSubmit GetToken ]
+            [ input
+                [ type_ "text"
+                , placeholder "Логин"
+                , value model.login
+                , onInput LoginChange
+                , class "mdl-textfield__input"
+                ]
+                []
+            , input
+                [ type_ "password"
+                , placeholder "Пароль"
+                , value model.password
+                , onInput PasswordChange
+                , class "mdl-textfield__input"
+                ]
+                []
+            , input
+                [ type_ "submit"
+                , value <|
+                    if model.loginInProgress then
+                        "Загружается..."
+
+                    else
+                        "Войти"
+                , disabled model.loginInProgress
+                , class "mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--accent mdl-js-ripple-effect"
+                ]
+                []
+            ]
+        ]
+
+
+renderMain : Model -> Html Msg
 renderMain model =
     if not model.loggedIn then
-        div [ class "loginWrapper" ]
-            [ Html.form [ class "loginForm", onSubmit GetToken ]
-                [ input
-                    [ type_ "text"
-                    , placeholder "Логин"
-                    , value model.login
-                    , onInput LoginChange
-                    , class "mdl-textfield__input"
-                    ]
-                    []
-                , input
-                    [ type_ "password"
-                    , placeholder "Пароль"
-                    , value model.password
-                    , onInput PasswordChange
-                    , class "mdl-textfield__input"
-                    ]
-                    []
-                , input
-                    [ type_ "submit"
-                    , value "Войти"
-                    , class "mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect mdl-button--accent mdl-js-ripple-effect"
-                    ]
-                    []
-                ]
-            ]
+        renderLogin model
 
     else
         div []
@@ -601,7 +635,10 @@ view : Model -> Html Msg
 view model =
     case model.err of
         Nothing ->
-            renderMain model
+            div []
+                [ Maybe.withDefault (text "") (Maybe.map showError model.errorMessage)
+                , renderMain model
+                ]
 
         Just (Http.BadUrl value) ->
             showError ("Неправильная ссылка " ++ value)
@@ -613,10 +650,10 @@ view model =
             showError "Пропала связь. Попробуйте еще раз."
 
         Just (Http.BadStatus response) ->
-            showError ("Неправильный ответ от сервера:" ++ response.url ++ "|" ++ response.status.message)
+            showError ("Неправильный ответ от сервера:" ++ String.fromInt response)
 
-        Just (Http.BadPayload error response) ->
-            showError ("Ошибка при обработке запроса:" ++ error ++ " || " ++ response.url ++ response.status.message)
+        Just (Http.BadBody error) ->
+            showError ("Ошибка при обработке запроса:" ++ error)
 
 
 renderListOrLoading : Bool -> Report -> Html Msg

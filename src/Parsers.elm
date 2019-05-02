@@ -1,9 +1,11 @@
-module Parsers exposing(remainsInfoListDecoder, productCodeDecoder, barCodeDecoder, barCodeDecoderForReal)
-import Model exposing(Report, ReportRow, RemainsInfo, ProductDetails)
-import Dict exposing(Dict,fromList)
-import Json.Decode as D exposing (field, list, map, map2, map4, map6, string, succeed, Decoder)
+module Parsers exposing (barCodeDecoder, barCodeDecoderForReal, productCodeDecoder, remainsInfoListDecoder)
+
+import Dict exposing (Dict, fromList)
+import Http exposing (Body)
+import Json.Decode as D exposing (Decoder, field, list, map, map2, map4, map6, string, succeed)
 import Json.Encode as E
-import Http exposing(Body)
+import Model exposing (ProductDetails, RemainsInfo, Report, ReportRow)
+
 
 productCodeDecoder : Decoder Report
 productCodeDecoder =
@@ -15,6 +17,7 @@ productCodeDecoder =
 assortmentDecoder : Decoder ReportRow
 assortmentDecoder =
     field "assortment" reportRowDecoder
+
 
 remainsInfoListDecoder : Decoder (Dict String RemainsInfo)
 remainsInfoListDecoder =
@@ -38,6 +41,7 @@ barCodeDecoder =
         (field "name" string)
         (field "id" string)
 
+
 reportRowDecoder : Decoder ReportRow
 reportRowDecoder =
     map6 ReportRow
@@ -48,7 +52,8 @@ reportRowDecoder =
         (succeed False)
         (succeed Nothing)
 
-barCodeDecoderForReal : ProductDetails -> Body
+
+barCodeDecoderForReal : ProductDetails -> Http.Body
 barCodeDecoderForReal productDetails =
     Http.jsonBody
         (E.object
