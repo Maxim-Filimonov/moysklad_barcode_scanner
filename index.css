@@ -6,6 +6,10 @@
 .error {
   color: red;
 }
+.error__content {
+  display: flex;
+  justify-content: center;
+}
 .items .item__name {
   height: 80px;
   align-self: center;
